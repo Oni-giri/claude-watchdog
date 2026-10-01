@@ -102,7 +102,8 @@ const enabledTools = (cfg) => [...new Set(String(cfg.tools || "").split(/[\s,]+/
  */
 export async function callOpenAI({ cfg, cwd, system, prompt }) {
   if (!cfg.baseUrl) return { notes: [], error: "openai provider: baseUrl is not set" };
-  if (!cfg.apiKey) return { notes: [], error: "openai provider: no API key (set WATCHDOG_API_KEY or the plugin's api_key option)" };
+  const local = /^https?:\/\/(localhost|127\.|\[::1\]|0\.0\.0\.0)/i.test(cfg.baseUrl);
+  if (!cfg.apiKey && !local) return { notes: [], error: "openai provider: no API key (set apiKeyEnv/WATCHDOG_API_KEY, run `ctl set-key` in a terminal, or use the plugin's api_key option)" };
   if (!cfg.model || cfg.model === "opus") return { notes: [], error: "openai provider: set `model` to a model name your endpoint serves" };
 
   const url = cfg.baseUrl.replace(/\/+$/, "") + "/chat/completions";
@@ -120,7 +121,7 @@ export async function callOpenAI({ cfg, cwd, system, prompt }) {
       const res = await fetch(url, {
         method: "POST",
         signal: ctl.signal,
-        headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, ...(cfg.headers || {}) },
+        headers: { "content-type": "application/json", ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}), ...(cfg.headers || {}) },
         body: JSON.stringify(body),
       });
       if (!res.ok) return { notes: [], usage, error: `endpoint returned ${res.status}: ${(await res.text()).slice(0, 300)}` };

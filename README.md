@@ -79,13 +79,17 @@ Plugin options (`model`, `mode`, `base_url`, `api_key`) are prompted on enable. 
 
 **`WATCHDOG.md`** (user `~/.claude/WATCHDOG.md`, plus `WATCHDOG.md` or `.claude/WATCHDOG.md` from the repo root down to cwd) is advisor-only guidance: review priorities, project traps, dangerous APIs. It is *not* shown to the main agent.
 
-**`/watchdog [status|on|off|dump [n]|clear]`** controls the current session. `off` is session-scoped.
+**`/watchdog [status|on|off|dump [n]|clear]`** controls the current session (`off` is session-scoped). **`/watchdog setup | show | test`** configure and verify the backend; `ctl set <key> <value>` / `unset` edit `~/.claude/watchdog.json`.
 
 ## Other models (OpenAI-compatible)
 
 Point the advisor at any OpenAI-compatible `/chat/completions` endpoint (OpenAI, OpenRouter, Together, Ollama, vLLM, LM Studio, a LiteLLM proxy…). Setting a base URL switches the backend; the advisor then runs its own small **read-only** `read_file` / `grep` / `glob` tool loop (confined to the project dir, symlinks resolved, ≤ 6 rounds) via standard function calling, so the model must support tool calls to verify things (without them it still reviews from the transcript alone).
 
-Easiest, from your shell (never put the key in a repo):
+Easiest: run **`/watchdog setup`** inside Claude Code. It asks (multiple choice) for the backend (Claude, OpenAI, OpenRouter, local/other URL), the model, the review mode and how to supply the key, saves it to `~/.claude/watchdog.json` and finishes with a live connectivity test (`/watchdog test`).
+
+**API keys never go through the chat** (the chat is the transcript, and the transcript is sent to the reviewer). The wizard takes the *name* of an env var (`apiKeyEnv`), or you run the hidden-input prompt yourself in a terminal: `node <plugin>/scripts/watchdog.mjs ctl set-key` (stored mode 600). Keys are optional for servers on localhost. `ctl set` refuses `apiKey`.
+
+Prefer files/env? Same settings, no wizard:
 
 ```bash
 export WATCHDOG_BASE_URL=https://api.openai.com/v1      # or http://localhost:11434/v1
@@ -93,7 +97,7 @@ export WATCHDOG_API_KEY=sk-...                          # or WATCHDOG_API_KEY_EN
 export WATCHDOG_MODEL=gpt-4o                            # the model name your endpoint serves
 ```
 
-or persistently in `~/.claude/watchdog.json`:
+or `~/.claude/watchdog.json`:
 
 ```json
 { "baseUrl": "https://openrouter.ai/api/v1", "apiKeyEnv": "OPENROUTER_API_KEY", "model": "anthropic/claude-sonnet-4.5",

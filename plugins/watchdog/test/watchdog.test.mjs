@@ -230,7 +230,7 @@ test("openai provider: errors are reported, not thrown; tools can't escape the p
   const ctx = makeEnv();
   const cfg = { ...loadConfig(ctx.cwd, { HOME: ctx.dir }), baseUrl: "http://127.0.0.1:1/v1", apiKey: "k", model: "m", timeoutMs: 2000 };
   assert.match((await callOpenAI({ cfg, cwd: ctx.cwd, system: "", prompt: "" })).error, /request failed/);
-  assert.match((await callOpenAI({ cfg: { ...cfg, apiKey: null }, cwd: ctx.cwd, system: "", prompt: "" })).error, /no API key/);
+  assert.match((await callOpenAI({ cfg: { ...cfg, baseUrl: "https://api.example.invalid/v1", apiKey: null }, cwd: ctx.cwd, system: "", prompt: "" })).error, /no API key/);
   assert.match((await callOpenAI({ cfg: { ...cfg, model: "opus" }, cwd: ctx.cwd, system: "", prompt: "" })).error, /set `model`/);
   const m = await mockOpenAI(() => ({ status: 401, json: { error: "bad key" } }));
   assert.match((await callOpenAI({ cfg: { ...cfg, baseUrl: m.url }, cwd: ctx.cwd, system: "", prompt: "" })).error, /401/);
@@ -263,4 +263,54 @@ test("security: a repo's .claude/watchdog.json cannot redirect the transcript or
   assert.equal(c.apiKey, null);
   assert.equal(c.reviewerCommand, null);
   assert.equal(c.minDeltaChars, 7, "harmless keys still apply");
+});
+
+// ---------- /watchdog setup backend ----------
+const ctlAsync = (ctx, ...args) => new Promise((resolve) => {
+  const c = spawn("node", [SCRIPT, "ctl", ...args], { cwd: ctx.cwd, env: ctx.env });
+  let out = "";
+  c.stdout.on("data", (d) => (out += d));
+  c.on("close", (code) => resolve({ code, out }));
+});
+
+test("ctl set/unset/show: writes user file with mode 600, refuses secrets, masks keys", async () => {
+  const ctx = makeEnv();
+  delete ctx.env.WATCHDOG_REVIEWER_CMD;
+  const file = `${ctx.dir}/.claude/watchdog.json`;
+  assert.equal((await ctlAsync(ctx, "set", "model", "gpt-4o")).code, 0);
+  await ctlAsync(ctx, "set", "baseUrl", "https://api.openai.com/v1");
+  await ctlAsync(ctx, "set", "reviewInterval", "5");
+  const j = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.deepEqual([j.model, j.baseUrl, j.reviewInterval], ["gpt-4o", "https://api.openai.com/v1", 5]);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+
+  const refused = await ctlAsync(ctx, "set", "apiKey", "sk-supersecret");
+  assert.equal(refused.code, 1);
+  assert.doesNotMatch(fs.readFileSync(file, "utf8"), /supersecret/);
+  assert.equal((await ctlAsync(ctx, "set", "nonsense", "1")).code, 1);
+
+  fs.writeFileSync(file, JSON.stringify({ ...j, apiKey: "sk-abcdefghij" }));
+  const shown = (await ctlAsync(ctx, "show")).out;
+  assert.match(shown, /openai-compatible @ https:\/\/api\.openai\.com/);
+  assert.doesNotMatch(shown, /abcdefghij/);
+
+  await ctlAsync(ctx, "unset", "baseUrl");
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).baseUrl, undefined);
+  assert.equal((await ctlAsync(ctx, "set-key")).code, 1, "set-key refuses without a TTY");
+});
+
+test("ctl test: reports OK / FAILED for the configured backend; local endpoints need no key", async () => {
+  const ctx = makeEnv();
+  delete ctx.env.WATCHDOG_REVIEWER_CMD;
+  const m = await mockOpenAI((body) => reply('{"notes":[]}'));
+  Object.assign(ctx.env, { WATCHDOG_BASE_URL: m.url, WATCHDOG_MODEL: "llama3" }); // 127.0.0.1, no key
+  const ok = await ctlAsync(ctx, "test");
+  assert.equal(ok.code ?? 0, 0);
+  assert.match(ok.out, /OK in \d+ms/);
+  assert.equal(m.seen[0].auth, undefined, "no Authorization header without a key");
+  m.server.close();
+  ctx.env.WATCHDOG_BASE_URL = "https://api.example.invalid/v1";
+  const bad = await ctlAsync(ctx, "test");
+  assert.equal(bad.code, 1);
+  assert.match(bad.out, /FAILED.*no API key/);
 });
