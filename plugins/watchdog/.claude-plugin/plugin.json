@@ -1,0 +1,34 @@
+{
+  "name": "watchdog",
+  "displayName": "Watchdog",
+  "version": "0.1.0",
+  "description": "An external advisor model that watches the session transcript and injects notes, concerns and blockers back into the running agent.",
+  "license": "MIT",
+  "keywords": [
+    "advisor",
+    "review",
+    "watchdog",
+    "hooks"
+  ],
+  "userConfig": {
+    "model": {
+      "type": "string",
+      "title": "Advisor model",
+      "description": "Model alias or id the advisor runs on (e.g. opus, sonnet, claude-opus-5-5). Ideally stronger than the model doing the work.",
+      "default": "opus"
+    },
+    "mode": {
+      "type": "string",
+      "title": "Review mode",
+      "description": "turn: review during the run (every few tool calls) and at the end. final: review only when the agent is about to stop.",
+      "options": [
+        "turn",
+        "final"
+      ],
+      "default": "turn"
+    }
+  },
+  "author": {
+    "name": "oni-giri"
+  }
+}

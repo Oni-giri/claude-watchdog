@@ -1,0 +1,14 @@
+{
+  "name": "claude-watchdog",
+  "owner": {
+    "name": "oni-giri"
+  },
+  "plugins": [
+    {
+      "name": "watchdog",
+      "source": "./plugins/watchdog",
+      "description": "A second model watching every turn: an external advisor that reviews the agent's transcript and injects notes, concerns and blockers back into the session."
+    }
+  ],
+  "description": "Claude Code plugins by oni-giri"
+}
