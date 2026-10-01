@@ -24,7 +24,7 @@ process see the transcript and talk back into the session); the plugin is the pa
 
 Or try it from a checkout: `claude --plugin-dir ./plugins/watchdog`.
 
-Requires `node` ≥ 18 and the `claude` CLI on `PATH` (the reviewer is `claude -p`, so it uses your existing login. No API key needed).
+Requires `node` ≥ 18. By default the reviewer is `claude -p` (uses your existing login, no API key). To use a non-Claude model, see [Other models](#other-models-openai-compatible).
 
 ## How it works
 
@@ -60,12 +60,13 @@ Design points carried over from omp:
 
 ## Configuration
 
-Later wins: defaults < `~/.claude/watchdog.json` < `<project>/.claude/watchdog.json` < env.
-Plugin options (`model`, `mode`) are prompted on enable. Env vars are `WATCHDOG_<NAME>` (see `lib/config.mjs`).
+Later wins: defaults < plugin options < `~/.claude/watchdog.json` < `<project>/.claude/watchdog.json` < env.
+Plugin options (`model`, `mode`, `base_url`, `api_key`) are prompted on enable. Env vars are `WATCHDOG_<NAME>` (see `lib/config.mjs`).
 
 | key | default | meaning |
 |-----|---------|---------|
-| `model` | `opus` | advisor model. Ideally stronger than the driver |
+| `model` | `opus` | advisor model (Claude alias/id, or the name your endpoint serves). Ideally stronger than the driver |
+| `provider` / `baseUrl` / `apiKey` / `apiKeyEnv` | – | OpenAI-compatible backend, see above |
 | `mode` | `turn` | `turn`: review while working and at Stop · `final`: only at Stop |
 | `reviewInterval` | `3` | review every Nth tool call |
 | `minDeltaChars` | `1500` | skip a mid-run review until this much new transcript exists |
@@ -79,6 +80,31 @@ Plugin options (`model`, `mode`) are prompted on enable. Env vars are `WATCHDOG_
 **`WATCHDOG.md`** (user `~/.claude/WATCHDOG.md`, plus `WATCHDOG.md` or `.claude/WATCHDOG.md` from the repo root down to cwd) is advisor-only guidance: review priorities, project traps, dangerous APIs. It is *not* shown to the main agent.
 
 **`/watchdog [status|on|off|dump [n]|clear]`** controls the current session. `off` is session-scoped.
+
+## Other models (OpenAI-compatible)
+
+Point the advisor at any OpenAI-compatible `/chat/completions` endpoint (OpenAI, OpenRouter, Together, Ollama, vLLM, LM Studio, a LiteLLM proxy…). Setting a base URL switches the backend; the advisor then runs its own small **read-only** `read_file` / `grep` / `glob` tool loop (confined to the project dir, symlinks resolved, ≤ 6 rounds) via standard function calling, so the model must support tool calls to verify things (without them it still reviews from the transcript alone).
+
+Easiest, from your shell (never put the key in a repo):
+
+```bash
+export WATCHDOG_BASE_URL=https://api.openai.com/v1      # or http://localhost:11434/v1
+export WATCHDOG_API_KEY=sk-...                          # or WATCHDOG_API_KEY_ENV=OPENROUTER_API_KEY
+export WATCHDOG_MODEL=gpt-4o                            # the model name your endpoint serves
+```
+
+or persistently in `~/.claude/watchdog.json`:
+
+```json
+{ "baseUrl": "https://openrouter.ai/api/v1", "apiKeyEnv": "OPENROUTER_API_KEY", "model": "anthropic/claude-sonnet-4.5",
+  "extraBody": { "reasoning_effort": "high" }, "headers": { "HTTP-Referer": "https://example.com" } }
+```
+
+The plugin's enable-time options `base_url` / `api_key` (stored in your keychain) work too. `provider: "claude"` forces the CLI backend even when a URL is set; local servers that ignore auth can use any non-empty key.
+
+**Security:** `provider`, `baseUrl`, `apiKey`, `apiKeyEnv`, `headers`, `extraBody` and `reviewerCommand` are honored **only** from your user config, plugin options and env, never from a project's `.claude/watchdog.json`. Otherwise a cloned repo could send your transcript and key to its own server. Note that with a third-party endpoint your transcript (prompts, code, tool output) goes to that provider.
+
+Not measured for non-Claude backends: cost (tokens are tracked, dollars are not).
 
 ## Cost
 

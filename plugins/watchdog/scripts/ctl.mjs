@@ -38,6 +38,7 @@ export async function ctl(argv) {
       const count = (s) => pending.filter((p) => p.severity === s).length;
       console.log([
         `watchdog: ${cfg.enabled && !st.disabled ? "ON" : "OFF"}${st.disabled ? " (disabled for this session)" : ""}`,
+        `backend: ${cfg.reviewerCommand ? "custom command" : cfg.provider === "openai" || (cfg.provider !== "claude" && cfg.baseUrl) ? `openai-compatible @ ${cfg.baseUrl}` : "claude CLI"}`,
         `model: ${cfg.model}   mode: ${cfg.mode}   every ${cfg.reviewInterval} tool calls, min ${cfg.minDeltaChars} chars`,
         `reviews: ${st.usage.reviews}   cost: $${st.usage.costUsd.toFixed(4)}   tokens in/out: ${st.usage.inputTokens}/${st.usage.outputTokens}`,
         `pending notes: ${count("blocker")} blocker, ${count("concern")} concern, ${count("nit")} nit`,

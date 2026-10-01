@@ -14,7 +14,7 @@
     "model": {
       "type": "string",
       "title": "Advisor model",
-      "description": "Model alias or id the advisor runs on (e.g. opus, sonnet, claude-opus-5-5). Ideally stronger than the model doing the work.",
+      "description": "Model alias/id for the Claude CLI (e.g. opus, sonnet), or the model name your OpenAI-compatible endpoint serves.",
       "default": "opus"
     },
     "mode": {
@@ -26,6 +26,17 @@
         "final"
       ],
       "default": "turn"
+    },
+    "base_url": {
+      "type": "string",
+      "title": "OpenAI-compatible base URL (optional)",
+      "description": "Set to run the advisor on a non-Claude model, e.g. https://api.openai.com/v1 or http://localhost:11434/v1. Leave empty to use the Claude CLI."
+    },
+    "api_key": {
+      "type": "string",
+      "title": "API key for that endpoint (optional)",
+      "description": "Bearer token for the OpenAI-compatible endpoint.",
+      "sensitive": true
     }
   },
   "author": {

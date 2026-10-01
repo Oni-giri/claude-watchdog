@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SEVERITIES } from "./guard.mjs";
+import { callOpenAI } from "./openai.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const SCHEMA = {
@@ -66,7 +67,13 @@ export function parseReviewerOutput(stdout) {
 }
 
 /** Run one review. Resolves { notes, usage?, error? }; never rejects. */
-export function callReviewer({ cfg, cwd, system, prompt }) {
+export function callReviewer(args) {
+  const { cfg } = args;
+  if (!cfg.reviewerCommand && (cfg.provider === "openai" || (cfg.provider !== "claude" && cfg.baseUrl))) return callOpenAI(args);
+  return callClaude(args);
+}
+
+function callClaude({ cfg, cwd, system, prompt }) {
   return new Promise((resolve) => {
     const env = { ...process.env, WATCHDOG_CHILD: "1" };
     let child;
