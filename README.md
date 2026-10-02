@@ -24,6 +24,13 @@ process see the transcript and talk back into the session); the plugin is the pa
 
 Or try it from a checkout: `claude --plugin-dir ./plugins/watchdog`.
 
+Optional live view (see [Seeing what the advisor says](#seeing-what-the-advisor-says)):
+
+```
+/plugin install watchdog-ui@claude-watchdog
+# or: claude --plugin-dir ./plugins/watchdog --plugin-dir ./plugins/watchdog-ui
+```
+
 Requires `node` ≥ 18. By default the reviewer is `claude -p` (uses your existing login, no API key). To use a non-Claude model, see [Other models](#other-models-openai-compatible).
 
 ## How it works
@@ -58,6 +65,18 @@ Design points carried over from omp:
 - **Stop can't loop forever.** At most `maxStopBlocks` (default 2) consecutive blocks.
 - Every review re-sends the user's original ask plus recent asks and the list of advice already raised, since each `claude -p` call is stateless.
 
+## Seeing what the advisor says
+
+Notes reach the agent as hidden context. You see them two ways:
+
+- **Built in:** each delivered note is also printed to you as a line in the session (`Watchdog [concern] → agent: …`, via the hooks' `systemMessage`). `showNotes`: `auto` (default; off while watchdog-ui runs), `always`, `never`.
+- **`watchdog-ui` plugin** (optional, uses Claude Code's early-access mod API; interactive terminal/desktop only):
+  - a **card in the transcript** for each delivered note (`▲ Watchdog concern — before its next tool call`), a notice row the model never reads;
+  - a **band above the prompt**: model, reviews, cost, pending blockers/concerns/nits, the last note, any reviewer error, with a `hide` button;
+  - a **toast** the moment a blocker is queued.
+
+  It follows `~/.claude/watchdog/feed/<session>.jsonl`, which the watchdog hooks write, and touches `~/.claude/watchdog/ui-heartbeat` so the plain-text line is skipped while it draws.
+
 ## Configuration
 
 Later wins: defaults < plugin options < `~/.claude/watchdog.json` < `<project>/.claude/watchdog.json` < env.
@@ -73,6 +92,7 @@ Plugin options (`model`, `mode`, `base_url`, `api_key`) are prompted on enable. 
 | `minStopChars` | `120` | skip the final review for trivial turns |
 | `maxNotesPerUpdate` | `4` | non-blocker notes per review |
 | `tools` | `Read,Grep,Glob` | advisor's tools |
+| `showNotes` | `auto` | print delivered notes to you as a session line (`auto` = unless watchdog-ui runs) |
 | `stopBlocksOnConcern` | `false` | let final-review concerns block Stop too |
 | `maxStopBlocks` | `2` | consecutive Stop blocks before releasing |
 | `timeoutMs` / `stopWaitMs` | `240000` / `90000` | reviewer cap / how long Stop waits for an in-flight review |
@@ -119,6 +139,7 @@ Each review is a real model call (measured ≈ $0.015–0.03 with `sonnet` on sm
 - Hooks can't abort an *in-flight* tool the way omp's steering does. Blockers land at the next tool boundary (or wake the idle agent).
 - The reviewer is stateless per call (no persistent advisor conversation / prompt cache yet), so each call re-pays the transcript delta + pinned context.
 - One advisor; no `WATCHDOG.yml` roster, no fallback model chains, no `syncBacklog` (the Stop hook does wait for an in-flight review).
+- No mid-turn card *styling* yet: watchdog-ui's cards are plain notice rows (the band is coloured).
 - Transcript files are written asynchronously, so the newest tool result may land one review later.
 
 ## Develop
@@ -126,6 +147,7 @@ Each review is a real model call (measured ≈ $0.015–0.03 with `sonnet` on sm
 ```
 cd plugins/watchdog && node --test test/*.test.mjs   # fake reviewer backend, no tokens spent
 claude plugin validate ./plugins/watchdog
+claude plugin validate ./plugins/watchdog-ui && claude plugin test ./plugins/watchdog-ui
 ```
 
 `WATCHDOG_REVIEWER_CMD` swaps the reviewer for any command that reads the prompt on stdin and prints `{"notes":[…]}`.

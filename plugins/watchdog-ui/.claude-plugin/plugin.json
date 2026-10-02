@@ -1,0 +1,9 @@
+{
+  "name": "watchdog-ui",
+  "displayName": "Watchdog UI",
+  "version": "0.1.0",
+  "description": "Live view of the Watchdog advisor: a card in the transcript for every note it delivers, and a status band above the prompt. Early-access mod API; terminal and desktop.",
+  "author": { "name": "oni-giri" },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

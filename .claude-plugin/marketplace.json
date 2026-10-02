@@ -8,6 +8,11 @@
       "name": "watchdog",
       "source": "./plugins/watchdog",
       "description": "A second model watching every turn: an external advisor that reviews the agent's transcript and injects notes, concerns and blockers back into the session."
+    },
+    {
+      "name": "watchdog-ui",
+      "source": "./plugins/watchdog-ui",
+      "description": "Optional live view for Watchdog: transcript cards for delivered notes, a status band above the prompt, toasts for blockers. Uses the early-access mod API."
     }
   ],
   "description": "Claude Code plugins by oni-giri"

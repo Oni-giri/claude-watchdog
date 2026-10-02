@@ -2,6 +2,7 @@
 // Watchdog hook entry point: `watchdog.mjs <event>` with the hook payload on stdin.
 import fs from "node:fs";
 import { loadConfig } from "../lib/config.mjs";
+import { delivered, feed } from "../lib/feed.mjs";
 import { bySeverity, formatAdvisories } from "../lib/format.mjs";
 import { peekDelta, runReview } from "../lib/review.mjs";
 import { Session, stateRoot } from "../lib/state.mjs";
@@ -10,7 +11,10 @@ import { ctl } from "./ctl.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const emit = (obj) => process.stdout.write(JSON.stringify(obj));
-const ctx = (hookEventName, notes) => ({ hookSpecificOutput: { hookEventName, additionalContext: formatAdvisories(notes.sort(bySeverity)) } });
+const ctx = (hookEventName, notes, systemMessage) => ({
+  ...(systemMessage ? { systemMessage } : {}),
+  hookSpecificOutput: { hookEventName, additionalContext: formatAdvisories(notes.sort(bySeverity)) },
+});
 
 async function readInput() {
   if (process.stdin.isTTY) return {};
@@ -55,7 +59,7 @@ async function main() {
     case "prompt": {
       await session.update((st) => { st.idle = false; st.stopBlocks = 0; });
       const notes = session.take();
-      if (notes.length) emit(ctx("UserPromptSubmit", notes));
+      if (notes.length) emit(ctx("UserPromptSubmit", notes, delivered(session, cfg, "prompt", notes)));
       return;
     }
 
@@ -63,11 +67,12 @@ async function main() {
     case "pretool": {
       const blockers = session.take((n) => n.severity === "blocker");
       const concerns = session.take((n) => n.severity === "concern");
+      const shown = delivered(session, cfg, "pretool", [...blockers, ...concerns]);
       if (blockers.length) {
         const reason = `${formatAdvisories(blockers)}\nThis tool call was held so you can read the advisory above. Reconsider, then retry or change course.`;
-        emit({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason, additionalContext: formatAdvisories(concerns) } });
+        emit({ ...(shown ? { systemMessage: shown } : {}), hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason, additionalContext: formatAdvisories(concerns) } });
       } else if (concerns.length) {
-        emit(ctx("PreToolUse", concerns));
+        emit(ctx("PreToolUse", concerns, shown));
       }
       return;
     }
@@ -76,7 +81,7 @@ async function main() {
     case "deliver": {
       if (session.load().idle) await session.update((st) => { st.idle = false; });
       const notes = session.take();
-      if (notes.length) emit(ctx("PostToolUse", notes));
+      if (notes.length) emit(ctx("PostToolUse", notes, delivered(session, cfg, "deliver", notes)));
       return;
     }
 
@@ -96,6 +101,7 @@ async function main() {
       if (session.load().idle) {
         const blockers = session.take((n) => n.severity === "blocker");
         if (blockers.length) {
+          delivered(session, cfg, "rewake", blockers); // async hook output isn't shown; the feed still records it
           process.stderr.write(formatAdvisories(blockers));
           process.exitCode = 2; // asyncRewake: wakes the idle agent with this text
         }
@@ -125,7 +131,8 @@ async function main() {
       const taken = canBlock ? session.take(blocking) : [];
       if (taken.length) {
         await session.update((s) => { s.stopBlocks++; s.idle = false; });
-        emit({ decision: "block", reason: `${formatAdvisories(taken.sort(bySeverity))}\nA second reviewer raised the advisories above before you finished. Address them, or explain why they don't apply, before you stop.` });
+        const shown = delivered(session, cfg, "stop", taken);
+        emit({ ...(shown ? { systemMessage: shown } : {}), decision: "block", reason: `${formatAdvisories(taken.sort(bySeverity))}\nA second reviewer raised the advisories above before you finished. Address them, or explain why they don't apply, before you stop.` });
         return;
       }
       const left = session.pending();

@@ -314,3 +314,34 @@ test("ctl test: reports OK / FAILED for the configured backend; local endpoints 
   assert.equal(bad.code, 1);
   assert.match(bad.out, /FAILED.*no API key/);
 });
+
+// ---------- visibility: systemMessage + feed ----------
+test("delivered notes are shown to the person (systemMessage) and recorded in the feed", () => {
+  const ctx = makeEnv();
+  run(ctx, "SessionStart");
+  append(ctx.transcript, user("implement it"), toolUse("Write", { content: "var x = 1 // TODO stub" }), toolResult("ok"));
+  post(ctx);
+  const p = pre(ctx);
+  assert.match(p.json.systemMessage, /^Watchdog \[concern\] → agent: Stubbed implementation/);
+  const d = deliver(ctx);
+  assert.match(d.json.systemMessage, /Watchdog \[nit\] → agent: Use const/);
+
+  const lines = fs.readFileSync(`${ctx.dir}/.claude/watchdog/feed/s1.jsonl`, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual(lines.filter((l) => l.event === "queued").map((l) => l.severity).sort(), ["concern", "nit"]);
+  assert.deepEqual(lines.filter((l) => l.event === "delivered").map((l) => `${l.via}:${l.severity}`), ["pretool:concern", "deliver:nit"]);
+  const review = lines.find((l) => l.kind === "review");
+  assert.equal(review.admitted, 2);
+  assert.equal(review.reviews, 1);
+});
+
+test("the systemMessage line is suppressed while the UI mod's heartbeat is fresh (showNotes=auto)", () => {
+  const ctx = makeEnv();
+  run(ctx, "SessionStart");
+  fs.mkdirSync(`${ctx.dir}/.claude/watchdog`, { recursive: true });
+  fs.writeFileSync(`${ctx.dir}/.claude/watchdog/ui-heartbeat`, String(Date.now()));
+  append(ctx.transcript, user("go"), toolUse("Write", { content: "var x" }));
+  post(ctx);
+  const d = deliver(ctx);
+  assert.match(d.json.hookSpecificOutput.additionalContext, /Use const/, "the agent still gets it");
+  assert.equal(d.json.systemMessage, undefined);
+});

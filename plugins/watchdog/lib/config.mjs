@@ -40,6 +40,8 @@ export const DEFAULTS = {
   stopBlocksOnConcern: false,
   /** Max consecutive Stop blocks before the watchdog lets the agent finish. */
   maxStopBlocks: 2,
+  /** Show delivered notes to the person as a line in the session: "auto" (unless the watchdog-ui mod is running), "always", "never". */
+  showNotes: "auto",
   /** Escape hatch (tests / custom backends): shell command, prompt on stdin, JSON {notes:[...]} on stdout. */
   reviewerCommand: null,
 };

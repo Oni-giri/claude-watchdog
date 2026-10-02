@@ -1,4 +1,5 @@
 import { loadWatchdogNotes } from "./config.mjs";
+import { feed } from "./feed.mjs";
 import { EmissionGuard } from "./guard.mjs";
 import { buildPrompt, callReviewer, systemPrompt } from "./reviewer.mjs";
 import { readDelta, renderDelta, userAsks } from "./transcript.mjs";
@@ -71,6 +72,9 @@ export async function runReview({ session, cfg, cwd, transcriptPath, final, last
     return out;
   });
 
+  for (const n of admitted) feed(session.id, { kind: "note", event: "queued", severity: n.severity, note: n.note, final: n.final });
+  const st1 = session.load();
+  feed(session.id, { kind: "review", final: !!final, durationMs, admitted: admitted.length, error: res.error, reviews: st1.usage.reviews, costUsd: st1.usage.costUsd, model: cfg.model });
   session.log({ kind: "review", final: !!final, deltaChars: delta.length, durationMs, error: res.error, usage: res.usage, notes: res.notes, admitted: admitted.length });
   return { notes: admitted, error: res.error };
 }
