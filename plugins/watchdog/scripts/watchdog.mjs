@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { loadConfig } from "../lib/config.mjs";
 import { delivered, feed } from "../lib/feed.mjs";
 import { bySeverity, formatAdvisories } from "../lib/format.mjs";
-import { peekDelta, runReview } from "../lib/review.mjs";
+import { peekDelta, runReview, skipAhead } from "../lib/review.mjs";
 import { Session, stateRoot } from "../lib/state.mjs";
 import { readDelta, userAsks } from "../lib/transcript.mjs";
 import { ctl } from "./ctl.mjs";
@@ -42,6 +42,8 @@ async function open(input) {
 }
 
 const active = (cfg, session) => cfg.enabled && !session.load().disabled;
+/** `/watchdog …` (or `/watchdog:watchdog …`) is a control command, not work to review. */
+const isControlPrompt = (text) => /^\s*\/watchdog(:watchdog)?(\s|$)/.test(String(text ?? ""));
 
 async function main() {
   const event = process.argv[2];
@@ -57,7 +59,8 @@ async function main() {
       return;
 
     case "prompt": {
-      await session.update((st) => { st.idle = false; st.stopBlocks = 0; });
+      const skipTurn = isControlPrompt(input.prompt ?? input.user_input);
+      await session.update((st) => { st.idle = false; st.stopBlocks = 0; st.skipTurn = skipTurn; });
       const notes = session.take();
       if (notes.length) emit(ctx("UserPromptSubmit", notes, delivered(session, cfg, "prompt", notes)));
       return;
@@ -87,7 +90,7 @@ async function main() {
 
     // Async: review in the background; wake the idle agent only for a blocker.
     case "review": {
-      if (cfg.mode === "final") return;
+      if (cfg.mode === "final" || session.load().skipTurn) return;
       const st = await session.update((s) => { s.idle = false; s.toolCalls++; });
       if (st.toolCalls < cfg.reviewInterval) return;
       if (peekDelta(session, input.transcript_path, cfg.maxDeltaChars) < cfg.minDeltaChars) return;
@@ -110,7 +113,13 @@ async function main() {
     }
 
     case "stop": {
-      await session.update((st) => { st.idle = true; });
+      const control = (await session.update((st) => { st.idle = true; return st.skipTurn; }));
+      if (control) {
+        // Don't review (or block) a /watchdog command's own turn; mark it seen.
+        await skipAhead(session, input.transcript_path);
+        await session.update((st) => { st.skipTurn = false; });
+        return;
+      }
       const waitUntil = Date.now() + cfg.stopWaitMs;
       while (session.reviewInFlight(cfg.timeoutMs + 30000) && Date.now() < waitUntil) await sleep(250);
 

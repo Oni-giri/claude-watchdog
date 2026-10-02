@@ -63,7 +63,9 @@ Design points carried over from omp:
 - **No recursion.** The reviewer runs with hooks disabled and `WATCHDOG_CHILD=1`; subagent events are ignored; our own advisories are filtered out of what the reviewer reads.
 - **Failures never wedge the session.** A broken reviewer is logged; after 3 consecutive failures its backlog is dropped. Hook errors exit 0.
 - **Stop can't loop forever.** At most `maxStopBlocks` (default 2) consecutive blocks.
-- Every review re-sends the user's original ask plus recent asks and the list of advice already raised, since each `claude -p` call is stateless.
+- Every review re-sends the user's original ask plus recent asks, the advice already raised, and a rolling window of already-reviewed transcript (`contextChars`, default 8000) as evidence, since each `claude -p` call is stateless. The reviewer is told that something missing from the newest update is not proof it didn't happen.
+- `/watchdog …` turns are control commands: never reviewed, never blocked.
+- State lives in `~/.claude/watchdog/state` (override: `WATCHDOG_STATE_DIR`), next to the UI feed, so the hooks and `/watchdog` (which runs through the Bash tool) always agree.
 
 ## Seeing what the advisor says
 
@@ -90,6 +92,7 @@ Plugin options (`model`, `mode`, `base_url`, `api_key`) are prompted on enable. 
 | `reviewInterval` | `3` | review every Nth tool call |
 | `minDeltaChars` | `1500` | skip a mid-run review until this much new transcript exists |
 | `minStopChars` | `120` | skip the final review for trivial turns |
+| `contextChars` | `8000` | already-reviewed transcript re-sent as evidence with each review |
 | `maxNotesPerUpdate` | `4` | non-blocker notes per review |
 | `tools` | `Read,Grep,Glob` | advisor's tools |
 | `showNotes` | `auto` | print delivered notes to you as a session line (`auto` = unless watchdog-ui runs) |

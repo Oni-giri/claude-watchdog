@@ -7,6 +7,13 @@ import { readDelta, renderDelta, userAsks } from "./transcript.mjs";
 const MAX_FAILURES = 3; // then drop the backlog, like omp, so a broken reviewer can't wedge the session
 const clip = (s, n) => (s.length > n ? s.slice(0, n) + "…" : s);
 
+/** Mark everything currently in the transcript as seen without reviewing it (control turns). */
+export async function skipAhead(session, transcriptPath) {
+  const st = session.load();
+  const { nextCursor } = readDelta(transcriptPath, st.cursor);
+  await session.update((s) => { s.cursor = nextCursor; s.toolCalls = 0; });
+}
+
 /** Cheap peek used to decide whether a mid-run review is worth its cost. */
 export function peekDelta(session, transcriptPath, maxChars) {
   const st = session.load();
@@ -37,7 +44,7 @@ export async function runReview({ session, cfg, cwd, transcriptPath, final, last
   const res = await callReviewer({
     cfg, cwd,
     system: systemPrompt(cfg, loadWatchdogNotes(cwd)),
-    prompt: buildPrompt({ asks, raised: st0.raised, delta, final, cwd }),
+    prompt: buildPrompt({ asks, raised: st0.raised, delta, final, cwd, earlier: st0.recent }),
   });
   const durationMs = Date.now() - t0;
 
@@ -56,6 +63,7 @@ export async function runReview({ session, cfg, cwd, transcriptPath, final, last
     st.failures = 0;
     st.lastError = null;
     st.cursor = nextCursor;
+    st.recent = `${st.recent ?? ""}\n\n${delta}`.slice(-cfg.contextChars);
     st.toolCalls = 0;
     st.lastReviewAt = Date.now();
     st.usage.reviews++;

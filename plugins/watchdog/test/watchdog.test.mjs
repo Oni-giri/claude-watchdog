@@ -54,7 +54,7 @@ test("child sessions are never watched", () => {
   ctx.env.WATCHDOG_CHILD = "1";
   append(ctx.transcript, user("go"), toolUse("Bash", { command: "DROP TABLE users" }));
   assert.equal(post(ctx).stdout, "");
-  assert.deepEqual(new Session("s1", ctx.env.CLAUDE_PLUGIN_DATA).pending(), []);
+  assert.deepEqual(new Session("s1", `${ctx.dir}/.claude/watchdog/state`).pending(), []);
 });
 
 test("mid-run: nit is held to the post-tool boundary, concern rides pre-tool context, blocker denies", () => {
@@ -63,7 +63,7 @@ test("mid-run: nit is held to the post-tool boundary, concern rides pre-tool con
   append(ctx.transcript, user("implement it"), toolUse("Write", { content: "var x = 1 // TODO stub" }), toolResult("ok"));
   const r = post(ctx);
   assert.equal(r.status, 0);
-  const s = new Session("s1", ctx.env.CLAUDE_PLUGIN_DATA);
+  const s = new Session("s1", `${ctx.dir}/.claude/watchdog/state`);
   assert.deepEqual(s.pending().map((n) => n.severity).sort(), ["concern", "nit"]);
 
   const p = pre(ctx); // concern delivered before the next tool
@@ -87,7 +87,7 @@ test("review interval and min-delta gate cost", () => {
   run(ctx, "SessionStart");
   append(ctx.transcript, user("go"), toolUse("Write", { content: "var x" }));
   post(ctx); post(ctx);
-  const s = new Session("s1", ctx.env.CLAUDE_PLUGIN_DATA);
+  const s = new Session("s1", `${ctx.dir}/.claude/watchdog/state`);
   assert.equal(s.load().usage.reviews, 0);
   post(ctx);
   assert.equal(s.load().usage.reviews, 1);
@@ -120,7 +120,7 @@ test("stop: a final-review concern is preserved (not blocking) and delivered on 
 
 test("idle agent: a blocker finishing after Stop wakes it via exit 2; a nit just waits", async () => {
   const ctx = makeEnv();
-  ctx.env.WATCHDOG_REVIEWER_CMD = `sleep 1; node ${ctx.dir}/fake-reviewer.mjs`; // review outlives the agent's turn
+  ctx.env.WATCHDOG_REVIEWER_CMD = `sleep 1; node ${ctx.dir}/fake-reviewer.cjs`; // review outlives the agent's turn
   run(ctx, "SessionStart");
   append(ctx.transcript, user("go"), toolUse("Bash", { command: "DROP TABLE users; var x" }));
   const input = JSON.stringify({ session_id: "s1", cwd: ctx.cwd, transcript_path: ctx.transcript, hook_event_name: "PostToolUse" });
@@ -129,7 +129,7 @@ test("idle agent: a blocker finishing after Stop wakes it via exit 2; a nit just
   child.stderr.on("data", (d) => (stderr += d));
   child.stdin.end(input);
   await new Promise((r) => setTimeout(r, 400)); // review is now in flight
-  const s = new Session("s1", ctx.env.CLAUDE_PLUGIN_DATA);
+  const s = new Session("s1", `${ctx.dir}/.claude/watchdog/state`);
   await s.update((st) => { st.idle = true; }); // ...and the agent just stopped
   const code = await new Promise((r) => child.on("close", r));
   assert.equal(code, 2);
@@ -145,11 +145,11 @@ test("/watchdog ctl: status, off silences hooks, on restores", () => {
   assert.match(ctl("off"), /watchdog off/);
   append(ctx.transcript, user("go"), toolUse("Bash", { command: "DROP TABLE users" }));
   post(ctx);
-  assert.deepEqual(new Session("s1", ctx.env.CLAUDE_PLUGIN_DATA).pending(), []);
+  assert.deepEqual(new Session("s1", `${ctx.dir}/.claude/watchdog/state`).pending(), []);
   assert.match(ctl("status"), /OFF/);
   ctl("on");
   post(ctx);
-  assert.equal(new Session("s1", ctx.env.CLAUDE_PLUGIN_DATA).pending().length, 1);
+  assert.equal(new Session("s1", `${ctx.dir}/.claude/watchdog/state`).pending().length, 1);
 });
 
 test("stop: maxStopBlocks (project .claude/watchdog.json) lets the agent finish", () => {
@@ -344,4 +344,52 @@ test("the systemMessage line is suppressed while the UI mod's heartbeat is fresh
   const d = deliver(ctx);
   assert.match(d.json.hookSpecificOutput.additionalContext, /Use const/, "the agent still gets it");
   assert.equal(d.json.systemMessage, undefined);
+});
+
+test("regression: /watchdog finds the session although the Bash tool has no CLAUDE_PLUGIN_DATA and sits in a subfolder", async () => {
+  const ctx = makeEnv();
+  // Hooks run with Claude Code's plugin env…
+  ctx.env.CLAUDE_PLUGIN_DATA = `${ctx.dir}/plugin-data`;
+  run(ctx, "SessionStart");
+  append(ctx.transcript, user("go"), toolUse("Write", { content: "var x" }));
+  post(ctx);
+  // …the Bash tool doesn't have it, and Claude may have cd'ed into a subfolder.
+  const bashEnv = { ...ctx.env };
+  delete bashEnv.CLAUDE_PLUGIN_DATA;
+  fs.mkdirSync(`${ctx.cwd}/src/deep`, { recursive: true });
+  const r = spawnSync("node", [SCRIPT, "ctl", "status"], { cwd: `${ctx.cwd}/src/deep`, env: bashEnv, encoding: "utf8" });
+  assert.match(r.stdout, /watchdog: ON/);
+  assert.match(r.stdout, /reviews: 1/);
+});
+
+test("regression: later reviews get already-reviewed transcript as evidence (no false 'never ran' blockers)", () => {
+  const ctx = makeEnv();
+  ctx.env.WD_PROMPT_DUMP = `${ctx.dir}/prompts.txt`;
+  run(ctx, "SessionStart");
+  append(ctx.transcript, user("create hello.py and run it"), toolUse("Bash", { command: "python3 hello.py" }), toolResult("hello-output-123"));
+  post(ctx);
+  append(ctx.transcript, assistantText("All done: created and ran hello.py, it printed hello."));
+  stop(ctx, { last_assistant_message: "All done: created and ran hello.py, it printed hello." });
+  const prompts = fs.readFileSync(`${ctx.dir}/prompts.txt`, "utf8").split("\n=====\n").filter(Boolean);
+  assert.equal(prompts.length, 2);
+  assert.doesNotMatch(prompts[0], /<earlier-context/);
+  assert.match(prompts[1], /<earlier-context[^>]*>[\s\S]*hello-output-123[\s\S]*<\/earlier-context>/, "the run's output is in the final review");
+});
+
+test("regression: a /watchdog control turn is neither reviewed nor blocked, and isn't reviewed later either", () => {
+  const ctx = makeEnv();
+  ctx.env.WD_PROMPT_DUMP = `${ctx.dir}/prompts.txt`;
+  run(ctx, "SessionStart");
+  hook(ctx, "UserPromptSubmit", { __event: "prompt", prompt: "/watchdog:watchdog status" });
+  append(ctx.transcript, user("/watchdog:watchdog status"), toolUse("Bash", { command: "node watchdog.mjs ctl status DROP TABLE" }), toolResult("watchdog: ON"));
+  post(ctx);
+  const r = stop(ctx, { last_assistant_message: "watchdog: ON ... DROP TABLE" });
+  assert.equal(r.stdout, "", "no block, no message");
+  assert.equal(fs.existsSync(`${ctx.dir}/prompts.txt`), false, "no review ran");
+
+  hook(ctx, "UserPromptSubmit", { __event: "prompt", prompt: "now write it" });
+  append(ctx.transcript, user("now write it"), toolUse("Write", { content: "var x" }), toolResult("ok"));
+  post(ctx);
+  const prompts = fs.readFileSync(`${ctx.dir}/prompts.txt`, "utf8");
+  assert.doesNotMatch(prompts, /ctl status/, "the control turn never reaches the reviewer");
 });

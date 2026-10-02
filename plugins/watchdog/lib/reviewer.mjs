@@ -32,11 +32,14 @@ export function systemPrompt(cfg, watchdogNotes = []) {
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-export function buildPrompt({ asks, raised, delta, final, cwd }) {
+export function buildPrompt({ asks, raised, delta, final, cwd, earlier = "" }) {
   const parts = [`Session cwd: ${cwd}`];
   if (asks.length) parts.push(`<user-asks>\n${asks.map((a, i) => `(${i + 1}) ${a}`).join("\n\n")}\n</user-asks>`);
   if (raised.length) {
     parts.push(`<already-raised>\n${raised.map((r) => `- [${r.severity}] ${r.note}`).join("\n")}\n</already-raised>`);
+  }
+  if (earlier.trim()) {
+    parts.push(`<earlier-context note="already reviewed; evidence only, do not re-review it">\n${esc(earlier)}\n</earlier-context>`);
   }
   const heading = final ? "Agent finished its turn" : "[in progress — more steps follow]";
   parts.push(`<transcript-update status="${heading}">\n${esc(delta)}\n</transcript-update>`);

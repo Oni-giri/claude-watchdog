@@ -1,7 +1,7 @@
 {
   "name": "watchdog",
   "displayName": "Watchdog",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "An external advisor model that watches the session transcript and injects notes, concerns and blockers back into the running agent.",
   "license": "MIT",
   "keywords": [

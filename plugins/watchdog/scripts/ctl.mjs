@@ -103,13 +103,19 @@ export async function ctl(argv) {
 
   // ---------- session control ----------
   const root = stateRoot();
-  const sid = Session.latest(root, process.cwd());
+  const found = Session.latest(root, process.cwd());
   const cfg = loadConfig(process.cwd());
-  if (!sid) {
-    console.log("watchdog: no session recorded for this directory yet (it starts recording on the first hook event).");
+  if (!found) {
+    console.log([
+      "watchdog: no hook has run yet, so there is no session to report on.",
+      "Hooks load when a session starts: if you installed or enabled the plugin during this session, restart Claude Code.",
+      "Check it's enabled with `/plugin`, and that `node` is on PATH for hooks (they run `node …/watchdog.mjs`).",
+      `(state dir: ${root})`,
+    ].join("\n"));
     return;
   }
-  const session = new Session(sid, root);
+  if (!found.exact) console.log(`(no session recorded for ${process.cwd()}; showing the most recent one, from ${found.cwd})`);
+  const session = new Session(found.sessionId, root);
   const st = session.load();
 
   switch (cmd) {

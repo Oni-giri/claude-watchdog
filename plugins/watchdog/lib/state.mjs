@@ -3,8 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+/**
+ * A fixed, user-level location. Not CLAUDE_PLUGIN_DATA: hooks get that variable but
+ * the Bash tool (where /watchdog runs) doesn't, so the two would disagree.
+ */
 export const stateRoot = () =>
-  process.env.CLAUDE_PLUGIN_DATA || path.join(os.tmpdir(), "claude-watchdog");
+  process.env.WATCHDOG_STATE_DIR || path.join(os.homedir(), ".claude", "watchdog", "state");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const safe = (s) => String(s).replace(/[^\w.-]/g, "_");
@@ -58,6 +62,8 @@ export class Session {
       seen: {}, // dedupe history
       asks: [], // user prompts, pinned into every review
       raised: [], // recent advice, shown to the reviewer to avoid repeats
+      recent: "", // tail of already-reviewed transcript: evidence for later reviews
+      skipTurn: false, // this turn is a /watchdog control command: don't review it
       usage: { reviews: 0, costUsd: 0, inputTokens: 0, outputTokens: 0 },
       lastError: null,
       lastReviewAt: null,
@@ -133,7 +139,26 @@ export class Session {
     fs.mkdirSync(root, { recursive: true });
     writeAtomic(Session.pointerFile(root, cwd), JSON.stringify({ sessionId, cwd: path.resolve(cwd) }));
   }
+  /**
+   * The session for `cwd`: exact match, else the nearest parent directory that has one
+   * (Claude may have cd'ed into a subfolder), else the most recently active session.
+   * @returns {{sessionId: string, cwd: string, exact: boolean} | null}
+   */
   static latest(root, cwd) {
-    try { return JSON.parse(fs.readFileSync(Session.pointerFile(root, cwd), "utf8")).sessionId; } catch { return null; }
+    for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
+      try { return { ...JSON.parse(fs.readFileSync(Session.pointerFile(root, dir), "utf8")), exact: true }; } catch {}
+      if (path.dirname(dir) === dir) break;
+    }
+    let best = null;
+    try {
+      for (const f of fs.readdirSync(root)) {
+        if (!f.startsWith("latest-")) continue;
+        const full = path.join(root, f);
+        const mtime = fs.statSync(full).mtimeMs;
+        if (!best || mtime > best.mtime) best = { mtime, full };
+      }
+      if (best) return { ...JSON.parse(fs.readFileSync(best.full, "utf8")), exact: false };
+    } catch {}
+    return null;
   }
 }

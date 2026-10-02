@@ -10,6 +10,7 @@ export const SCRIPT = path.join(here, "..", "scripts", "watchdog.mjs");
 /** Fake reviewer: reads the prompt on stdin, answers from keywords in the transcript. */
 const FAKE = `
 let p=""; process.stdin.on("data",d=>p+=d).on("end",()=>{
+  if(process.env.WD_PROMPT_DUMP) require("fs").appendFileSync(process.env.WD_PROMPT_DUMP, p+"\\n=====\\n");
   const notes=[];
   if(p.includes("DROP TABLE")) notes.push({severity:"blocker",note:"Destructive DROP TABLE on prod data."});
   if(p.includes("TODO stub")) notes.push({severity:"concern",note:"Stubbed implementation instead of real code."});
@@ -19,7 +20,7 @@ let p=""; process.stdin.on("data",d=>p+=d).on("end",()=>{
 
 export function makeEnv() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wd-test-"));
-  const fake = path.join(dir, "fake-reviewer.mjs");
+  const fake = path.join(dir, "fake-reviewer.cjs");
   fs.writeFileSync(fake, FAKE);
   const cwd = path.join(dir, "proj");
   fs.mkdirSync(path.join(cwd, ".git"), { recursive: true });
@@ -28,7 +29,6 @@ export function makeEnv() {
   const env = {
     ...process.env,
     HOME: dir, // isolate ~/.claude/watchdog.json
-    CLAUDE_PLUGIN_DATA: path.join(dir, "data"),
     WATCHDOG_REVIEWER_CMD: `node ${fake}`,
     WATCHDOG_REVIEW_INTERVAL: "1",
     WATCHDOG_MIN_DELTA_CHARS: "10",

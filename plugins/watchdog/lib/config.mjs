@@ -34,6 +34,8 @@ export const DEFAULTS = {
   timeoutMs: 240000,
   /** How long Stop waits for an in-flight background review. */
   stopWaitMs: 90000,
+  /** Already-reviewed transcript re-sent as evidence with each review (each call is stateless). */
+  contextChars: 8000,
   /** Cap on transcript characters sent per review (tail is kept). */
   maxDeltaChars: 60000,
   /** At Stop, also block on concerns (not just blockers) raised by the final review. */
